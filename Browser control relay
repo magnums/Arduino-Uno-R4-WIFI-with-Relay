@@ -1,0 +1,114 @@
+#include "ArduinoGraphics.h"    // 🟢 ต้องมาก่อน!
+#include "Arduino_LED_Matrix.h"
+#include "WiFiS3.h"
+
+#define relay 2
+
+ArduinoLEDMatrix matrix;
+
+char ssid[] = "...........";
+char pass[] = "...........";
+int status = WL_IDLE_STATUS;
+WiFiServer server(80);
+
+String output = "off";
+String header = "";
+
+void setup() {
+  Serial.begin(9600);
+  pinMode(relay, OUTPUT);
+  digitalWrite(relay, HIGH);  // OFF default
+  matrix.begin();
+
+  connectToWiFi();
+  server.begin();
+  printWifiStatus();
+}
+
+void loop() {
+  handleClient();
+  showTextAnimation();  // 🧠 Update text animation each loop
+}
+
+// 🔁 ฟังก์ชันแสดงข้อความ Animation ตาม output
+void showTextAnimation() {
+  matrix.beginDraw();
+  matrix.stroke(0xFFFFFF);
+  matrix.textScrollSpeed(60);
+  matrix.textFont(Font_5x7);
+
+  const char* message = (output == "on") ? "     OFF      " : "     ON     ";
+  matrix.beginText(0, 1, 0xFFFFFF);
+  matrix.println(message);
+  matrix.endText(SCROLL_LEFT);
+  matrix.endDraw();
+}
+
+// 🌐 จัดการ Web Server และ Relay
+void handleClient() {
+  WiFiClient client = server.available();
+  if (client) {
+    String currentLine = "";
+    unsigned long timeout = millis();
+
+    while (client.connected() && millis() - timeout < 2000) {
+      if (client.available()) {
+        char c = client.read();
+        header += c;
+
+        if (c == '\n') {
+          if (currentLine.length() == 0) {
+            client.println("HTTP/1.1 200 OK");
+            client.println("Content-type:text/html");
+            client.println("Connection: close");
+            client.println();
+
+            if (header.indexOf("GET /on") >= 0) {
+              output = "on";
+              digitalWrite(relay, LOW);
+            } else if (header.indexOf("GET /off") >= 0) {
+              output = "off";
+              digitalWrite(relay, HIGH);
+            }
+
+            client.println("<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
+            client.println("<style>body{text-align:center;font-family:Helvetica;}button{padding:16px 40px;font-size:30px;border-radius:10px;}</style></head><body>");
+            client.println("<h1>Relay is <strong>" + output + "</strong></h1>");
+
+            if (output == "off") {
+              client.println("<a href=\"/on\"><button style='background:green;color:white;'>TURN ON</button></a>");
+            } else {
+              client.println("<a href=\"/off\"><button style='background:red;color:white;'>TURN OFF</button></a>");
+            }
+
+            client.println("</body></html>");
+            client.println();
+            break;
+          } else {
+            currentLine = "";
+          }
+        } else if (c != '\r') {
+          currentLine += c;
+        }
+      }
+    }
+    header = "";
+    client.stop();
+  }
+}
+
+// 📡 ฟังก์ชันเชื่อมต่อ WiFi
+void connectToWiFi() {
+  while (status != WL_CONNECTED) {
+    status = WiFi.begin(ssid, pass);
+    delay(10000);
+  }
+}
+
+// 📡 แสดงสถานะ WiFi
+void printWifiStatus() {
+  Serial.print("Connected to ");
+  Serial.println(WiFi.SSID());
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
+}
